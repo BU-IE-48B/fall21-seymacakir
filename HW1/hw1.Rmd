@@ -1,0 +1,62 @@
+---
+title: "hw1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(data.table)
+library(TSrepr)
+library(ggplot2)
+library(tidyr)
+
+```
+
+```{r}
+ 
+
+setwd('C:\\Users\\seycakir\\Documents\\GitHub\\fall21-seymacakir\\hw1') 
+
+x_train <- fread("uWaveGestureLibrary_X_TRAIN")
+y_train <- fread("uWaveGestureLibrary_Y_TRAIN")
+z_train <- fread("uWaveGestureLibrary_Z_TRAIN")
+
+```
+
+```{r}
+x_train$V1 <- as.factor(x_train$V1)
+setnames(x_train, 'V1', 'class')
+x_train[, id:=as.factor(1:.N)]
+
+y_train$V1 <- as.factor(y_train$V1)
+setnames(y_train, 'V1', 'class')
+y_train[, id:=as.factor(1:.N)]
+
+z_train$V1 <- as.factor(z_train$V1)
+setnames(z_train, 'V1', 'class')
+z_train[, id:=as.factor(1:.N)]
+
+```
+
+```{r}
+data_x <- melt(x_train, id.vars = c("id", "class"))
+data_y <- melt(y_train, id.vars = c("id", "class"))
+data_z <- melt(z_train, id.vars = c("id", "class"))
+
+
+data_x[,time := (as.numeric(separate(data_x, variable, into = c("V", "time"), sep = "V")$time) - 1)]
+data_y[, time := (as.numeric(separate(data_y, variable, into = c("V", "time"), sep = "V")$time) - 1)]
+data_z[,time := ( as.numeric(separate(data_z, variable, into = c("V", "time"), sep = "V")$time) - 1)]
+```
+
+```{r}
+ggplot( data_x, aes(x = value, color = class )) +geom_point(aes( y = data_y$value)) 
+ggplot( data_x[id== '1'], aes(x = value) ) +geom_point(aes( y = data_z[id== '1']$value))
+ggplot( data_y[id== '1'], aes(x = value) ) +geom_point(aes( y = data_z[id== '1']$value))
+
+```
+
