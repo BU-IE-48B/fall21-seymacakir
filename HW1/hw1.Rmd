@@ -1,30 +1,48 @@
 ---
-title: "hw1"
-output: html_document
+title: " IE 48B Time Series Analytics: HW1 "
+author: " Seyma Cakir - 2017402024 "
+date:  " 2021-11-06 " 
+output:
+ html_document:
+   toc: true
+   toc_float: true
+   smooth_scroll : true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,out.width = '50%')
 ```
 
 
 ```{r}
 library(data.table)
-library(TSrepr)
 library(ggplot2)
 library(tidyr)
-
+library("scatterplot3d") 
+require(TSrepr)
+require(dplyr)
+require(rpart)
+library(knitr)
 ```
 
-```{r}
+# Homework 1
+# Task: Gesture Recognition
+
+ The aim of this homework is find a suitable time series representation for 8 different gestures. 
+ 
  
 
-setwd('C:\\Users\\seycakir\\Documents\\GitHub\\fall21-seymacakir\\hw1') 
+## Data Manupulations 
+
+ The data used in this homework is composed of three different data sets  which are one of them consists of acceleration in x-axis, one of them consist a of acceleration in y-axis, and one of them consists of acceleration in z-axis. 
+The Data merged in one data table which is show velocity and locations in all axis during the time. 
+
+```{r}
+setwd('D:\\Users\\seyma\\Documents\\GitHub\\fall21-seymacakir\\hw1') 
 
 x_train <- fread("uWaveGestureLibrary_X_TRAIN")
 y_train <- fread("uWaveGestureLibrary_Y_TRAIN")
 z_train <- fread("uWaveGestureLibrary_Z_TRAIN")
-
 ```
 
 ```{r}
@@ -40,9 +58,7 @@ z_train$V1 <- as.factor(z_train$V1)
 setnames(z_train, 'V1', 'class')
 z_train[, id:=as.factor(1:.N)]
 
-```
 
-```{r}
 data_x <- melt(x_train, id.vars = c("id", "class"))
 data_y <- melt(y_train, id.vars = c("id", "class"))
 data_z <- melt(z_train, id.vars = c("id", "class"))
@@ -51,12 +67,590 @@ data_z <- melt(z_train, id.vars = c("id", "class"))
 data_x[,time := (as.numeric(separate(data_x, variable, into = c("V", "time"), sep = "V")$time) - 1)]
 data_y[, time := (as.numeric(separate(data_y, variable, into = c("V", "time"), sep = "V")$time) - 1)]
 data_z[,time := ( as.numeric(separate(data_z, variable, into = c("V", "time"), sep = "V")$time) - 1)]
+
+data_x [, velocity_x := cumsum(value), by = id ]
+data_x [, location_x := cumsum(velocity_x), by = id]
+
+data_y [, velocity_y := cumsum(value), by = id ]
+data_y [, location_y := cumsum(velocity_y), by = id]
+
+data_z [, velocity_z := cumsum(value), by = id ]
+data_z [, location_z := cumsum(velocity_z), by = id]
+
+data <- merge(data_x[,c("id","time","class","value", "velocity_x", "location_x")],data_y[,c("id","time","class","value", "velocity_y", "location_y")],by=c("id","time","class"))
+
+data <- merge(data,data_z[,c("id","time","class","value", "velocity_z", "location_z")],by=c("id","time","class"))
+kable(head(data), caption = "Example of Data")
+
+```
+
+## Visualization of Gestures 
+
+To see more clearly data in used in this work and understand nature of motions, example observations from each tyoe of gestures are represented by 3-D graphes.  
+
+### class 1 
+
+```{r}
+scatterplot3d(data[id == 11,c("location_x","location_y", "location_z")])
+```
+
+### class 2 
+
+
+```{r}
+
+scatterplot3d(data[id == 15,c("location_x","location_y", "location_z")])
+
+```
+### class 3 
+
+```{r}
+
+scatterplot3d(data[id == 4,c("location_x","location_y", "location_z")])
+
+```
+
+### class 4
+
+```{r}
+scatterplot3d(data[id == 5,c("location_x","location_y", "location_z")])
+
+```
+
+### class 5 
+
+```{r}
+scatterplot3d(data[id == 2,c("location_x","location_y", "location_z")])
+```
+
+### class 6 
+```{r}
+scatterplot3d(data[id == 1,c("location_x","location_y", "location_z")])
+```
+
+### class 7 
+
+```{r}
+
+scatterplot3d(data[id == 7,c("location_x","location_y", "location_z")])
+
+```
+
+
+### class 8 
+
+```{r}
+scatterplot3d(data[id == 6,c("location_x","location_y", "location_z")])
+```
+
+## Time Series Representation 
+
+
+The two different approaches is used to summarize each class of gestures in this study. 
+
+
+### First  Approach: Piecewise Aggregate Approximation
+
+
+In the first part of this study, the distance between location of points and origin during the time is calculated. Then, the time is divided into 9 intervals to get more general view and avoid complexity.Then, average distance from the origin during the intervals are calculated. 
+
+```{r}
+data[, intervals:= rep(1:9, each = 35, 896)]
+
+data[, dist := sqrt(location_x^2 + location_y^2 + location_z^2) ]
+
+```
+
+
+
+
+```{r, fig.align='center'}
+
+rep_1 = data[,mean(dist), by = c( "class", "intervals")]
+
+
+ggplot(rep_1, aes(x = intervals, y = V1 ,color= class)) + geom_line() + labs( title = "Average Distance from the Origin during the Time" , ylab= "distance") + theme_minimal()
+
+```
+The graph above  shows the average distance during the intervals differs by class.It can be reasonable that we divided data at important points conclude general behavior of data and according to similarity between average distance between intervals created by  model and observations can be classified. 
+
+Therefore,  Piecewise Aggregate Approximation method is used for each class data by get average distance for each observation. 
+
+```{r}
+class_1 = data[class==1]
+class_2 = data[class==2]
+class_3 = data[class==3]
+class_4 = data[class==4]
+class_5 = data[class==5]
+class_6 = data[class==6]
+class_7 = data[class==7]
+class_8 = data[class==8]
+```
+
+
+```{r}
+df_1 = class_1  %>% group_by(time) %>%  summarise(mean_dist = mean(dist)) %>% mutate(class = 1) %>% as.data.table()
+df_2 = class_2  %>% group_by(time) %>% summarise(mean_dist = mean(dist)) %>% mutate(class = 2)  %>% as.data.table()
+df_3 = class_3  %>% group_by(time) %>%  summarise(mean_dist = mean(dist)) %>% mutate(class = 3)  %>% as.data.table()
+df_4 = class_4  %>% group_by(time) %>%  summarise(mean_dist = mean(dist))  %>% as.data.table()
+df_5 = class_5  %>% group_by(time) %>%  summarise(mean_dist = mean(dist)) %>% mutate(class = 5)  %>% as.data.table()
+df_6 = class_6  %>% group_by(time) %>%  summarise(mean_dist = mean(dist)) %>% mutate(class = 6)  %>% as.data.table()
+df_7 = class_7  %>% group_by(time) %>%  summarise(mean_dist = mean(dist)) %>% mutate(class = 7)  %>% as.data.table()
+df_8 = class_8  %>% group_by(time) %>%  summarise(mean_dist = mean(dist)) %>% mutate(class = 8)  %>% as.data.table()
+
+
+segment_length = 35
+```
+
+
+```{r}
+data_ts1= df_1$mean_dist
+paa_rep=repr_paa(data_ts1, segment_length, meanC)
+plot(paa_rep,type='l', main='Piecewise Aggregate Approximation Class 1',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id==11], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 1") + ylab("distance from the origin")
+```
+```{r}
+data_ts2= df_2$mean_dist
+paa_rep=repr_paa(data_ts2, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 2',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 15], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 2") + ylab("distance from the origin")
+
+```
+```{r}
+data_ts3= df_3$mean_dist
+paa_rep=repr_paa(data_ts3, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 3',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 4], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 3") + ylab("distance from the origin")
+
+
+
 ```
 
 ```{r}
-ggplot( data_x, aes(x = value, color = class )) +geom_point(aes( y = data_y$value)) 
-ggplot( data_x[id== '1'], aes(x = value) ) +geom_point(aes( y = data_z[id== '1']$value))
-ggplot( data_y[id== '1'], aes(x = value) ) +geom_point(aes( y = data_z[id== '1']$value))
+data_ts4= df_4$mean_dist
+paa_rep=repr_paa(data_ts4, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 4',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 5], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 4") + ylab("distance from the origin")
 
 ```
+```{r}
+data_ts5= df_5$mean_dist
+paa_rep=repr_paa(data_ts5, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 5',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 2], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 5") + ylab("distance from the origin")
+
+```
+```{r}
+data_ts6= df_6$mean_dist
+paa_rep=repr_paa(data_ts6, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 6',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 1], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 6") + ylab("distance from the origin")
+
+```
+```{r}
+data_ts7= df_7$mean_dist
+paa_rep=repr_paa(data_ts7, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 7',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 7], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 7") + ylab("distance from the origin")
+
+```
+```{r}
+data_ts8= df_8$mean_dist
+paa_rep=repr_paa(data_ts8, segment_length, meanC)
+plot(paa_rep,type='l',main='Piecewise Aggregate Approximation Class 8',
+        xlab="time",
+        ylab=" distance from the origin")
+ggplot(data[id == 6], aes(x = time, y = dist)) + geom_line() + theme_minimal() + title(main = "class 8") + ylab("distance from the origin")
+
+```
+
+### Second Approach: Use of Regression Trees to Find Piecewise Models
+
+In the secon approach,  the motion in each axis is examined separately. Data is grouped by classes and then the average location in the axises are calculated. 
+
+
+```{r}
+
+dt_1 = class_1  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 1) %>% as.data.table()
+dt_2 = class_2  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 2)  %>% as.data.table()
+dt_3 = class_3  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 3)  %>% as.data.table()
+dt_4 = class_4  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 4)  %>% as.data.table()
+dt_5 = class_5  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 5)  %>% as.data.table()
+dt_6 = class_6  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 6)  %>% as.data.table()
+dt_7 = class_7  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 7)  %>% as.data.table()
+dt_8 = class_8  %>% group_by(time) %>%  summarise(x = mean(location_x),y = mean(location_y),z = mean(location_z)) %>% mutate(class = 8)  %>% as.data.table()
+
+```
+
+
+```{r, out.width= '33%'}
+ggplot() +
+   geom_line(data = dt_2, aes(x = time, y= x, color = 'class_1' )) +
+   geom_line(data = dt_1 , aes(x = time,y= x, color = 'class_2' ))  + 
+   geom_line(data = dt_3 , aes(x = time,y= x, color = 'class 3' ))  +
+   geom_line(data = dt_4 , aes(x = time,y= x, color = 'class 4' ))  +
+   geom_line(data = dt_5 , aes(x = time,y= x, color = 'class 5' ))  +
+   geom_line(data = dt_6 , aes(x = time,y= x, color = 'class 6' ))  +
+   geom_line(data = dt_7 , aes(x = time,y= x, color = 'class 7' ))  +
+   geom_line(data = dt_8 , aes(x = time,y= x, color = 'class 8' ))  + 
+   ggtitle("Avarage distance from X-axis") +
+   theme_minimal()
+
+
+ggplot() +
+   geom_line(data = dt_2, aes(x = time, y= y, color = 'class_1' )) +
+   geom_line(data = dt_1 , aes(x = time,y= y, color = 'class_2' ))  + 
+   geom_line(data = dt_3 , aes(x = time,y= y, color = 'class 3' ))  +
+   geom_line(data = dt_4 , aes(x = time,y= y, color = 'class 4' ))  +
+   geom_line(data = dt_5 , aes(x = time,y= y, color = 'class 5' ))  +
+   geom_line(data = dt_6 , aes(x = time,y= y, color = 'class 6' ))  +
+   geom_line(data = dt_7 , aes(x = time,y= y, color = 'class 7' ))  +
+   geom_line(data = dt_8 , aes(x = time,y= y, color = 'class 8' ))  + 
+   ggtitle("Avarage distance from Y-axis") +
+   theme_minimal()
+
+
+
+ggplot() +
+   geom_line(data = dt_2, aes(x = time, y= z, color = 'class_1' )) +
+   geom_line(data = dt_1 , aes(x = time,y= z, color = 'class_2' ))  + 
+   geom_line(data = dt_3 , aes(x = time,y= z, color = 'class 3' ))  +
+   geom_line(data = dt_4 , aes(x = time,y= z, color = 'class 4' ))  +
+   geom_line(data = dt_5 , aes(x = time,y= z, color = 'class 5' ))  +
+   geom_line(data = dt_6 , aes(x = time,y= z, color = 'class 6' ))  +
+   geom_line(data = dt_7 , aes(x = time,y= z, color = 'class 7' ))  +
+   geom_line(data = dt_8 , aes(x = time,y= z, color = 'class 8' ))  + 
+   ggtitle("Avarage distance from Z-axis") +
+   theme_minimal()
+```
+
+It can be said that the average location in the axis is can be clearly differentiated from each other according to graphs above. 
+
+
+For each class and axis, the regression tree model is generated to represent. 
+
+
+ **Class 1** 
+ 
+```{r, out.width= '33%'}
+t1_x =rpart(x~time,dt_1)
+dt_1[,tree_repX:=predict(t1_x,dt_1)]
+
+data_plot=melt(dt_1,id.vars='time',measure.vars=c('x','tree_repX'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line() + labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t1_y =rpart(y~time,dt_1)
+dt_1[,tree_repy:=predict(t1_y,dt_1)]
+
+data_plot=melt(dt_1,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line() + labs( title = "Y-axis", y = "distance") + 
+  theme_minimal()
+
+
+t1_z =rpart(z~time,dt_1)
+dt_1[,tree_repz:=predict(t1_z,dt_1)]
+
+data_plot=melt(dt_1,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line() +
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+
+
+
+```
+
+ **Class 2**
+ 
+```{r , out.width= '33%'}
+t2_x =rpart(x~time,dt_2)
+dt_2[,tree_repX:=predict(t2_x,dt_2)]
+
+data_plot=melt(dt_2,id.vars='time',measure.vars=c('x','tree_repX'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "x-axis", y = "distance") + 
+  theme_minimal()
+
+t2_y =rpart(y~time,dt_2)
+dt_2[,tree_repy:=predict(t2_y,dt_2)]
+
+data_plot=melt(dt_2,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "y-axis", y = "distance") + 
+  theme_minimal()
+
+t2_z =rpart(z~time,dt_2)
+dt_2[,tree_repz:=predict(t2_z,dt_2)]
+
+data_plot=melt(dt_2,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line() +
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+
+
+**class 3**
+
+```{r, out.width= '33%'}
+t3_x =rpart(x~time,dt_3)
+dt_3[,tree_repx:=predict(t3_x,dt_3)]
+
+data_plot=melt(dt_3,id.vars='time',measure.vars=c('x','tree_repx'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line() +
+  labs( title = "x-axis", y = "distance") + 
+  theme_minimal()
+
+t3_y =rpart(y~time,dt_3)
+dt_3[,tree_repy:=predict(t3_y,dt_3)]
+
+data_plot=melt(dt_3,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Y-axis", y = "distance") + 
+  theme_minimal()
+
+t3_z =rpart(z~time,dt_3)
+dt_3[,tree_repz:=predict(t3_z,dt_3)]
+
+data_plot=melt(dt_3,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+**Class 4**
+
+```{r, out.width= '33%'}
+t4_x =rpart(x~time,dt_4)
+dt_4[,tree_repx:=predict(t4_x,dt_4)]
+
+data_plot=melt(dt_4,id.vars='time',measure.vars=c('x','tree_repx'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t4_y =rpart(y~time,dt_4)
+dt_4[,tree_repy:=predict(t4_y,dt_4)]
+
+data_plot=melt(dt_4,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Y-axis", y = "distance") + 
+  theme_minimal()
+
+t4_z =rpart(z~time,dt_4)
+dt_4[,tree_repz:=predict(t4_z,dt_4)]
+
+data_plot=melt(dt_4,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+
+**Class 5**
+
+```{r, out.width= '33%'}
+t5_x =rpart(x~time,dt_5)
+dt_5[,tree_repx:=predict(t5_x,dt_5)]
+
+data_plot=melt(dt_5,id.vars='time',measure.vars=c('x','tree_repx'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t5_y =rpart(y~time,dt_5)
+dt_5[,tree_repy:=predict(t5_y,dt_5)]
+
+data_plot=melt(dt_5,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t5_z =rpart(z~time,dt_5)
+dt_5[,tree_repz:=predict(t5_z,dt_5)]
+
+data_plot=melt(dt_5,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+
+**Class 6**
+
+```{r, out.width= '33%'}
+t6_x =rpart(x~time,dt_6)
+dt_6[,tree_repx:=predict(t6_x,dt_6)]
+
+data_plot=melt(dt_6,id.vars='time',measure.vars=c('x','tree_repx'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t6_y =rpart(y~time,dt_6)
+dt_6[,tree_repy:=predict(t6_y,dt_6)]
+
+data_plot=melt(dt_6,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Y-axis", y = "distance") + 
+  theme_minimal()
+
+t6_z =rpart(z~time,dt_6)
+dt_6[,tree_repz:=predict(t6_z,dt_6)]
+
+data_plot=melt(dt_6,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+
+
+**Class 7**
+
+```{r, out.width= '33%'}
+t7_x =rpart(x~time,dt_7)
+dt_7[,tree_repx:=predict(t7_x,dt_7)]
+
+data_plot=melt(dt_7,id.vars='time',measure.vars=c('x','tree_repx'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t7_y =rpart(y~time,dt_7)
+dt_7[,tree_repy:=predict(t7_y,dt_7)]
+
+data_plot=melt(dt_7,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Y-axis", y = "distance") + 
+  theme_minimal()
+
+t7_z =rpart(z~time,dt_7)
+dt_7[,tree_repz:=predict(t7_z,dt_7)]
+
+data_plot=melt(dt_7,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+
+**Class 8**
+
+```{r , out.width= '33%'}
+
+
+t8_x =rpart(x~time,dt_8)
+dt_8[,tree_repx:=predict(t8_x,dt_8)]
+
+data_plot=melt(dt_8,id.vars='time',measure.vars=c('x','tree_repx'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "X-axis", y = "distance") + 
+  theme_minimal()
+
+t8_y =rpart(y~time,dt_8)
+dt_8[,tree_repy:=predict(t8_y,dt_8)]
+
+data_plot=melt(dt_8,id.vars='time',measure.vars=c('y','tree_repy'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Y-axis", y = "distance") + 
+  theme_minimal()
+
+t8_z =rpart(z~time,dt_8)
+dt_8[,tree_repz:=predict(t8_z,dt_8)]
+
+data_plot=melt(dt_8,id.vars='time',measure.vars=c('z','tree_repz'))
+
+ggplot(data_plot,aes(x=time,y=value,color=variable))+
+    geom_line()+
+  labs( title = "Z-axis", y = "distance") + 
+  theme_minimal()
+
+
+```
+
+
+## Conclusion 
+
+In this study, the  896 observations of the gesture data was given as splitted into 8 classes are examined and tried to be represented using two different approaches. 
+
+In the first approach, the distance between origind and points are used as a variable for the model. It can be said that the distance can not explain whole motion since it doen not give information about the direction. However,the model was created are compared with example observations and there was amiliarity between model and observations in a look. 
+
+In the second approach, the motion in the axises are examined seperatly. By observing graph the motions are more explained in th axises. However,  it is possible to lose information since unity of motions is corrapted. 
+
+If two model is examined by visualizations, It is more likely second approach is more usable. However, the distance between observations and model will give the better result in comparison. 
+
+Moreover, In this study Piecewise Models are used, since the motions are smooth process meybe using non-linear models can give betterresults. 
+
+
+# RMD 
+ The code of my study is available from [here]()
 
