@@ -6,4 +6,4 @@
 
 ## Homework-2
 
-[** Penalized regression approaches for time series representation**](HW2/HW2.html)
+[**Penalized regression approaches for time series representation**](HW2/HW2.html)
