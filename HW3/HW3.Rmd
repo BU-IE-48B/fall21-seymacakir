@@ -1,0 +1,657 @@
+---
+title: "HW3"
+author: "seyma cakir"
+date: "12/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(tidyr)
+require(dplyr)
+require(rpart)
+require(caret)
+library(tidyverse)
+require(TSrepr)
+require(TSdist)
+require(dtw)
+require(TunePareto)
+library(zoo)
+
+```
+
+```{r}
+setwd('D:\\Users\\seyma\\Documents\\GitHub\\fall21-seymacakir\\HW3')
+
+set.seed(488)
+
+```
+
+
+# Homerwork 3 
+
+**Task: Comparison of NN classifiers with Alternative Representations.**
+
+The aim of this task is to compare alternative distance measures for classification.
+For that purpose 5 different datasets from [Time series Classification](http://www.timeseriesclassification.com) are used which are Trace, ECG200, PowerCons, SmoothSubspace,and Plane. The Datasets represented by two different representation technique which are Piecewise Linear Approximation divide data linear regression models by points and Rpart regression tree. The points and maxdepth paramaters are setted by examining series general behaviour and 2 paramters train for both of them. 
+
+The four different distance calculation methods used: Euclidian distance, DTW, LCSS, and ERP. Based on distance calculation the classes predicted by k-nn classifier for 1,3 and 5. The results evaluated by using Cross-Validation Technique which divide data to 10 fold and use one fold as test data. The process is repeated for 5 times, and test dat selected such as include equal rate of classes with train data. In the end, the average accuracy values and standart deviation calculated for each method, and selected the best method. The selected method used for predict actual test data. 
+
+## Functions
+
+The functions are created for the repeated processes. 
+
+```{r}
+
+##############################################
+
+raw_data_preperation <- function(data){
+  
+  # data readed
+  train_data <-  as.data.table( read.table(sprintf("%s\\%s_TRAIN.txt",data,data)))
+  test_data <- as.data.table( read.table(sprintf("%s\\%s_TEST.txt",data,data)))
+  # change V1 column since it represents classes 
+  setnames(train_data,'V1','class')
+  setnames(test_data,'V1','class')
+  train_data$class = as.factor(train_data$class)
+  # assign ID for each time series. 
+  train_data[,id:=1:.N]
+  print(head(train_data))
+
+  #first column is the class variable
+  trainclass=train_data$class
+  testclass=test_data$class
+  dist_path = sprintf("%s/%s/distances", getwd(),data)
+  
+  data <- list(traindata = train_data[,2:(ncol(train_data)-1)], # Take only observation values
+               testdata = test_data[,2:(ncol(test_data)-1)],
+               trainclass = trainclass,
+               testclass =testclass,
+               distpath = dist_path,
+               raw_data = train_data)
+  
+  return(data)
+  
+}
+###########################################################
+
+# function for show the structure of time series classifications. 
+g1 <- function(data,dataset){
+
+long_train=melt(data,id.vars=c('id','class'))
+long_train[,time:=as.numeric(gsub("\\D", "", variable))-1]
+long_train=long_train[,list(id,class,time,value)]
+ggplot(long_train, aes(time,value)) + geom_line(aes(color=as.character(id))) + 
+      labs(
+          title = sprintf(" %s Time Series by Classes", dataset)
+          ) +
+   theme_classic() +  theme(legend.position = "none") +
+    facet_wrap(~class)
+
+ 
+}
+
+
+############################################################
+
+# Piecewise linear approximation
+# based on *Zhu Y, Wu D, Li Sh (2007) A Piecewise Linear Representation Method of Time Series 
+# Based on Feature Points. Knowledge-Based Intelligent Information and Engineering Systems 4693:1066-1072*
+
+pla_rep_data <- function(dataset,n_important,raw_data){
+  
+  # Data involves id and class variables 
+  train_data <- raw_data
+  # Data involves only time series observations
+  traindata <- train_data[,2:(ncol(train_data)-1)]
+  trainclass <- train_data$class
+  # melt the data for long format
+  long_train=melt(train_data,id.vars=c('id','class'))
+  # using gsub to set the nonnumerical part to zero length
+  long_train[,time:=as.numeric(gsub("\\D", "", variable))-1]
+  # remove variable
+  long_train=long_train[,list(id,class,time,value)]
+  long_train=long_train[order(id,time)]
+  
+  for (i in 1:nrow(train_data)){
+    # select series to represent 
+    data=long_train[id==i]
+    data_ts <- data$value
+    # set parameter and represent as PLA
+    pla_rep=repr_pla(data_ts, times = n_important, return = "both")
+    # fill the blanks between points and add time 
+    setnames(pla_rep,c('places','points'),c('time','pla_rep'))
+    pla_rep$time=pla_rep$time+1
+    data=merge(data,pla_rep,by='time',all.x=T)
+    data[, pla_rep := na.approx(pla_rep)]
+    # change real observations with representation values
+    traindata[i] <- as.data.table(t(data$pla_rep))
+    }
+  data <- list(traindata = traindata)
+  return(data)
+}
+
+#########################################################################
+
+# Regression trees recuresively partitions the predictor space to obtain piecewise constant models
+
+rpart_rep_data <- function(dataset,maxdepth, raw_data){
+  # Data involves id and class variables 
+  train_data <- raw_data
+  # Data involves only time series observations to change with representations
+  traindata <- train_data[,2:(ncol(train_data)-1)]
+  trainclass <- train_data$class
+  # melt the data for long format
+  long_train=melt(train_data,id.vars=c('id','class'))
+  # using gsub to set the nonnumerical part to zero length
+  long_train[,time:=as.numeric(gsub("\\D", "", variable))-1]
+  # remove variable
+  long_train=long_train[,list(id,class,time,value)]
+  long_train=long_train[order(id,time)]
+  
+    for (i in 1:nrow(traindata)){
+    # select the data for representation
+    data=long_train[id==i]
+    # set parameters and represent data
+    tree_fit=rpart(value~time,data,control=rpart.control(maxdepth=maxdepth))
+    data[,tree_rep:=predict(tree_fit,data)]
+    # change actual variables with representation
+    traindata[i] <- as.data.table(t(data$tree_rep))
+    }
+  
+  data <- list(traindata = traindata)
+  return(data)
+}
+
+
+
+########################################################################
+
+# Create a function calculates distances and record them with data set name, representation model info, and distance approach 
+
+get_distances = function(traindata,dist_path,dataset,rep) {
+
+# calculate distances and store them to save time
+large_number=100000000000000000000
+
+# Euclidean Distance 
+dist_euc=as.matrix(dist(traindata))
+diag(dist_euc)=large_number
+fwrite(dist_euc,sprintf('%s/%s_euc_%s.csv',dist_path,dataset,rep),col.names=F)
+
+# DTW method 
+dist_dtw=as.matrix(dtwDist(traindata))
+diag(dist_dtw)=large_number
+fwrite(dist_dtw,sprintf('%s/%s_dtw_%s.csv',dist_path,dataset,rep),col.names=F)
+
+# LCSS method 
+dist_lcss=TSDatabaseDistances(traindata,distance='lcss',epsilon=0.05)
+dist_lcss=as.matrix(dist_lcss)
+diag(dist_lcss)=large_number
+fwrite(dist_lcss,sprintf('%s/%s_lcss_%s.csv',dist_path,dataset,rep),col.names=F) 
+
+# ERP merhod
+dist_erp=TSDatabaseDistances(traindata,distance='erp',g=0.5)
+dist_erp=as.matrix(dist_erp)
+diag(dist_erp)=large_number
+fwrite(dist_erp,sprintf('%s/%s_erp_%s.csv',dist_path,dataset,rep),col.names=F)
+                   
+}
+
+#######################################################################################
+
+# classification used k-nn approach   
+nn_classify_cv=function(dist_matrix,train_class,test_indices,k=1){
+    
+    test_distances_to_train=dist_matrix[test_indices,]
+    test_distances_to_train=test_distances_to_train[,-test_indices]
+    train_class=train_class[-test_indices]
+    
+    ordered_indices=apply(test_distances_to_train,1,order)
+    if(k==1){
+        nearest_class=as.numeric(train_class[as.numeric(ordered_indices[1,])])
+        nearest_class=data.table(id=test_indices,nearest_class)
+    } else {
+        nearest_class=apply(ordered_indices[1:k,],2,function(x) {train_class[x]})
+        nearest_class=data.table(id=test_indices,t(nearest_class))
+    }
+    
+    long_nn_class=melt(nearest_class,'id')
+
+    class_counts=long_nn_class[,.N,list(id,value)]
+    class_counts[,predicted_prob:=N/k]
+    wide_class_prob_predictions=dcast(class_counts,id~value,value.var='predicted_prob')
+    wide_class_prob_predictions[is.na(wide_class_prob_predictions)]=0
+    class_predictions=class_counts[,list(predicted=value[which.max(N)]),by=list(id)]
+    
+    
+    return(list(prediction=class_predictions,prob_estimates=wide_class_prob_predictions))
+    
+}
+
+###################################################################################
+
+# Calculation of accuarcy by using cross-validation technique 
+
+get_acc = function(dist_path,nof_rep = 5,n_fold = 10, k_levels, trainclass){
+dist_files=list.files(dist_path, full.names=T)
+  
+cv_indices=generateCVRuns(trainclass, ntimes =nof_rep, nfold = n_fold, 
+                          leaveOneOut = FALSE, stratified = TRUE)
+
+approach_file=list.files(dist_path)
+result=vector('list',length(dist_files)*nof_rep*n_fold*length(k_levels))
+iter=1
+for(m in 1:length(dist_files)){  
+      dist_mat=as.matrix(fread(dist_files[m],header=FALSE))
+    for(i in 1:nof_rep){
+        this_fold=cv_indices[[i]]
+        for(j in 1:n_fold){
+            test_indices=this_fold[[j]]
+            for(k in 1:length(k_levels)){
+                current_k=k_levels[k]
+                current_fold=nn_classify_cv(dist_mat,trainclass,test_indices,k=current_k)
+                accuracy=sum(trainclass[test_indices]==current_fold$prediction$predicted)/length(test_indices)
+                tmp=data.table(dataset = strsplit(approach_file[m],"_")[[1]][1],
+                               rep = strsplit(approach_file[m],"_")[[1]][3], 
+                               approach=strsplit(approach_file[m],"_")[[1]][2],
+                               repid=i,
+                               foldid=j,
+                               k=current_k,
+                               acc=accuracy)
+                result[[iter]]=tmp
+                iter=iter+1
+                
+            }
+            
+        }
+    
+    }   
+    
+}
+return (list(result))
+}
+
+
+######################################################
+
+# representation of accuracy values
+
+show_results <- function( get_acc, Dataset){
+  results =rbindlist(get_acc[[1]])
+  overall_results <- results[,list(avg_acc=mean(acc),sdev_acc=sd(acc),result_count=.N),by=list(dataset,rep,approach,k)]
+# The results shown by box plot 
+
+  g <- ggplot(results,aes(x=paste0(approach,'-', rep,"-",k), y=acc)) +
+        geom_boxplot() + labs(
+             title = sprintf(" Accuracies of %s Dataset", Dataset),
+            x = "Methods",
+            y = "Accuracy") + theme_minimal() +  coord_flip()
+  print(g)
+
+
+  print(overall_results[avg_acc == max(overall_results$avg_acc)])
+
+  return(as.data.table(overall_results[order(avg_acc)]))
+  
+}
+
+```
+
+
+## Dataset 1 
+
+The first data set used is Trace Dataset from [Time series Classification](http://www.timeseriesclassification.com/description.php?Dataset=Trace)
+
+The Time series Classification Web site summarize data as:
+
+"This 4-class dataset is a subset of the Transient Classification Benchmark (trace project), an initiative at the turn of the century to collate data from the application domain of the process industry (e.g. nuclear, chemical, etc.). It is a synthetic dataset designed to simulate instrumentation failures in a nuclear power plant, created by Davide Roverso. The full dataset consists of 16 classes, 50 instances in each class. Each instance has 4 features. The TRACE subset only uses the second feature of class 2 and the third feature of class 3 and 7. Hence, this dataset contains 200 instances, 50 for each class. All instances are linearly interpolated to have the same length of 275 data points, and are z-normalized."
+
+The example of data shown below. Data is proceed to first column indicates class and last column indicates id of time series. Other columns from V2 to V276 shows the observations during the time. 
+
+
+```{r Raw Data }
+### TRACE DATA SET ###
+# the data pre-proceed 
+Trace_raw_data <- raw_data_preperation("Trace")
+# distances calculated 
+get_distances(Trace_raw_data$traindata,Trace_raw_data$distpath, "Trace","raw")
+
+```
+
+The graph below shows the time series by classes. 
+
+```{r Time Series by Class }
+g1(Trace_raw_data$raw_data, "Trace") 
+```
+By examing the graph above, the Piece Linear approximation point parameter setted 3 and 5, and also max depth parameter for Rpart represetations set for 3 and 5. 
+
+
+```{r PLA representation set points parameter 3}
+# Data representation and preparation
+Trace_pla_rep_3 <- pla_rep_data("Trace",3 ,Trace_raw_data$raw_data)
+# Distance Calculated 
+get_distances(Trace_pla_rep_3$traindata,Trace_raw_data$distpath,"Trace","PLApoints3")
+
+```
+
+
+
+```{r PLA representation set points parameter 5  }
+# Data representation and preparation
+Trace_pla_rep_5 <- pla_rep_data("Trace", 5,Trace_raw_data$raw_data)
+# Distance Calculated 
+get_distances(Trace_pla_rep_5$traindata, Trace_raw_data$distpath,"Trace","PLApoints5")
+```
+
+
+
+
+
+
+```{r Rpart Representation set max depth paramater 3 }
+# Data representation and preparation
+Trace_rpart_3 <- rpart_rep_data("Trace", 3 ,Trace_raw_data$raw_data)
+# Distance calculated 
+get_distances(Trace_rpart_3$traindata,Trace_raw_data$distpath,"Trace","Rpartmaxdepth3")
+
+```
+
+
+```{r Rpart Representation set max depth parameter 5}
+# Data representation and preparation
+Trace_rpart_5 <- rpart_rep_data("Trace", 5, Trace_raw_data$raw_data)
+# Distance Calculated
+get_distances(Trace_rpart_20$traindata,Trace_raw_data$distpath,"Trace","Rpartmaxdepth5")
+
+```
+
+The Accuracy Values calculted and shown below. 
+
+```{r Results Shown }
+Trace_Results <- get_acc(Trace_raw_data$distpath,5,10,c(1,3,5),Trace_raw_data$trainclass)
+show_results(Trace_Results,"Trace")
+```
+
+
+## Dataset 2    
+
+```{r Raw Data }
+### ECG200 DATA SET ###
+# the data pre-proceed 
+ECG200_raw_data <- raw_data_preperation("ECG200")
+# distances calculated 
+get_distances(ECG200_raw_data$traindata,ECG200_raw_data$distpath, "ECG200","raw")
+
+```
+
+The graph below shows the time series by classes. 
+
+```{r Time Series by Class }
+g1(ECG200_raw_data$raw_data, "ECG200") 
+```
+By examing the graph above, the Piece Linear approximation point parameter setted 3 and 5, and also max depth parameter for Rpart represetations set for 3 and 5. 
+
+
+```{r PLA representation set points parameter 1}
+# Data representation and preparation
+ECG200_pla_rep_5 <- pla_rep_data("ECG200",5 ,ECG200_raw_data$raw_data)
+# Distance Calculated 
+get_distances(ECG200_pla_rep_5$traindata,ECG200_raw_data$distpath,"ECG200","PLApoints5")
+
+```
+
+
+
+```{r PLA representation set points parameter 2  }
+# Data representation and preparation
+ECG200_pla_rep_10 <- pla_rep_data("ECG200", 10,ECG200_raw_data$raw_data)
+# Distance Calculated 
+get_distances(ECG200_pla_rep_10$traindata, ECG200_raw_data$distpath,"ECG200","PLApoints10")
+```
+
+
+
+
+
+
+```{r Rpart Representation set max depth paramater 1 }
+# Data representation and preparation
+ECG200_rpart_5 <- rpart_rep_data("ECG200", 5 ,ECG200_raw_data$raw_data)
+# Distance calculated 
+get_distances(ECG200_rpart_5$traindata,ECG200_raw_data$distpath,"ECG200","Rpartmaxdepth3")
+
+```
+
+
+```{r Rpart Representation set max depth parameter 2}
+# Data representation and preparation
+ECG200_rpart_10 <- rpart_rep_data("ECG200", 10, ECG200_raw_data$raw_data)
+# Distance Calculated
+get_distances(ECG200_rpart_10$traindata,ECG200_raw_data$distpath,"ECG200","Rpartmaxdepth5")
+
+```
+
+The Accuracy Values calculted and shown below. 
+
+```{r Results Shown }
+ECG200_Results <- get_acc(ECG200_raw_data$distpath,5,10,c(1,3,5),ECG200_raw_data$trainclass)
+show_results(ECG200_Results,"ECG200")
+```
+
+
+
+
+
+## Dataset 3 
+
+```{r Raw Data }
+### Plane DATA SET ###
+# the data pre-proceed 
+Plane_raw_data <- raw_data_preperation("Plane")
+# distances calculated 
+get_distances(Plane_raw_data$traindata,Plane_raw_data$distpath, "Plane","raw")
+
+```
+
+The graph below shows the time series by classes. 
+
+```{r Time Series by Class }
+g1(Plane_raw_data$raw_data, "Plane") 
+```
+By examing the graph above, the Piece Linear approximation point parameter setted 3 and 5, and also max depth parameter for Rpart represetations set for 3 and 5. 
+
+
+```{r PLA representation set points parameter 1}
+# Data representation and preparation
+Plane_pla_rep_5 <- pla_rep_data("Plane",5 ,Plane_raw_data$raw_data)
+# Distance Calculated 
+get_distances(Plane_pla_rep_5$traindata,Plane_raw_data$distpath,"Plane","PLApoints5")
+
+```
+
+
+
+```{r PLA representation set points parameter 2  }
+# Data representation and preparation
+Plane_pla_rep_10 <- pla_rep_data("Plane", 10,Plane_raw_data$raw_data)
+# Distance Calculated 
+get_distances(Plane_pla_rep_10$traindata, Plane_raw_data$distpath,"Plane","PLApoints10")
+```
+
+
+
+
+
+
+```{r Rpart Representation set max depth paramater 1 }
+# Data representation and preparation
+Plane_rpart_5 <- rpart_rep_data("Plane", 5 ,Plane_raw_data$raw_data)
+# Distance calculated 
+get_distances(Plane_rpart_5$traindata,Plane_raw_data$distpath,"Plane","Rpartmaxdepth3")
+
+```
+
+
+```{r Rpart Representation set max depth parameter 2}
+# Data representation and preparation
+Plane_rpart_10 <- rpart_rep_data("Plane", 10, Plane_raw_data$raw_data)
+# Distance Calculated
+get_distances(Plane_rpart_10$traindata,Plane_raw_data$distpath,"Plane","Rpartmaxdepth5")
+
+```
+
+The Accuracy Values calculted and shown below. 
+
+```{r Results Shown }
+Plane_Results <- get_acc(Plane_raw_data$distpath,5,10,c(1,3,5),Plane_raw_data$trainclass)
+show_results(Plane_Results,"Plane")
+```
+
+
+## Dataset 4
+
+```{r Raw Data }
+### SmoothSubspace DATA SET ###
+# the data pre-proceed 
+SmoothSubspace_raw_data <- raw_data_preperation("SmoothSubspace")
+# distances calculated 
+get_distances(SmoothSubspace_raw_data$traindata,SmoothSubspace_raw_data$distpath, "SmoothSubspace","raw")
+
+```
+
+The graph below shows the time series by classes. 
+
+```{r Time Series by Class }
+g1(SmoothSubspace_raw_data$raw_data, "SmoothSubspace") 
+```
+By examing the graph above, the Piece Linear approximation point parameter setted 3 and 5, and also max depth parameter for Rpart represetations set for 3 and 5. 
+
+
+```{r PLA representation set points parameter 1}
+# Data representation and preparation
+SmoothSubspace_pla_rep_5 <- pla_rep_data("SmoothSubspace",5 ,SmoothSubspace_raw_data$raw_data)
+# Distance Calculated 
+get_distances(SmoothSubspace_pla_rep_5$traindata,SmoothSubspace_raw_data$distpath,"SmoothSubspace","PLApoints5")
+
+```
+
+
+
+```{r PLA representation set points parameter 2  }
+# Data representation and preparation
+SmoothSubspace_pla_rep_10 <- pla_rep_data("SmoothSubspace", 10,SmoothSubspace_raw_data$raw_data)
+# Distance Calculated 
+get_distances(SmoothSubspace_pla_rep_10$traindata, SmoothSubspace_raw_data$distpath,"SmoothSubspace","PLApoints10")
+```
+
+
+
+
+
+
+```{r Rpart Representation set max depth paramater 1 }
+# Data representation and preparation
+SmoothSubspace_rpart_5 <- rpart_rep_data("SmoothSubspace", 5 ,SmoothSubspace_raw_data$raw_data)
+# Distance calculated 
+get_distances(SmoothSubspace_rpart_5$traindata,SmoothSubspace_raw_data$distpath,"SmoothSubspace","Rpartmaxdepth3")
+
+```
+
+
+```{r Rpart Representation set max depth parameter 2}
+# Data representation and preparation
+SmoothSubspace_rpart_10 <- rpart_rep_data("SmoothSubspace", 10, SmoothSubspace_raw_data$raw_data)
+# Distance Calculated
+get_distances(SmoothSubspace_rpart_10$traindata,SmoothSubspace_raw_data$distpath,"SmoothSubspace","Rpartmaxdepth5")
+
+```
+
+The Accuracy Values calculted and shown below. 
+
+```{r Results Shown }
+SmoothSubspace_Results <- get_acc(SmoothSubspace_raw_data$distpath,5,10,c(1,3,5),SmoothSubspace_raw_data$trainclass)
+show_results(SmoothSubspace_Results,"SmoothSubspace")
+```
+
+
+
+
+
+
+
+
+## Dataset 5 
+
+```{r Raw Data }
+### PowerCons DATA SET ###
+# the data pre-proceed 
+PowerCons_raw_data <- raw_data_preperation("PowerCons")
+# distances calculated 
+get_distances(PowerCons_raw_data$traindata,PowerCons_raw_data$distpath, "PowerCons","raw")
+
+```
+
+The graph below shows the time series by classes. 
+
+```{r Time Series by Class }
+g1(PowerCons_raw_data$raw_data, "PowerCons") 
+```
+By examing the graph above, the Piece Linear approximation point parameter setted 3 and 5, and also max depth parameter for Rpart represetations set for 3 and 5. 
+
+
+```{r PLA representation set points parameter 1}
+# Data representation and preparation
+PowerCons_pla_rep_5 <- pla_rep_data("PowerCons",5 ,PowerCons_raw_data$raw_data)
+# Distance Calculated 
+get_distances(PowerCons_pla_rep_5$traindata,PowerCons_raw_data$distpath,"PowerCons","PLApoints5")
+
+```
+
+
+
+```{r PLA representation set points parameter 2  }
+# Data representation and preparation
+PowerCons_pla_rep_10 <- pla_rep_data("PowerCons", 10,PowerCons_raw_data$raw_data)
+# Distance Calculated 
+get_distances(PowerCons_pla_rep_10$traindata, PowerCons_raw_data$distpath,"PowerCons","PLApoints10")
+```
+
+
+
+
+
+
+```{r Rpart Representation set max depth paramater 1 }
+# Data representation and preparation
+PowerCons_rpart_5 <- rpart_rep_data("PowerCons", 5 ,PowerCons_raw_data$raw_data)
+# Distance calculated 
+get_distances(PowerCons_rpart_5$traindata,PowerCons_raw_data$distpath,"PowerCons","Rpartmaxdepth3")
+
+```
+
+
+```{r Rpart Representation set max depth parameter 2}
+# Data representation and preparation
+PowerCons_rpart_10 <- rpart_rep_data("PowerCons", 10, PowerCons_raw_data$raw_data)
+# Distance Calculated
+get_distances(PowerCons_rpart_10$traindata,PowerCons_raw_data$distpath,"PowerCons","Rpartmaxdepth5")
+
+```
+
+The Accuracy Values calculted and shown below. 
+
+```{r Results Shown }
+PowerCons_Results <- get_acc(PowerCons_raw_data$distpath,5,10,c(1,3,5),PowerCons_raw_data$trainclass)
+show_results(PowerCons_Results,"PowerCons")
+```
+
+
+
+
