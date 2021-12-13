@@ -1,16 +1,8 @@
----
-title: "Homework 3"
-author: "seyma cakir"
-date: "12/13/2021"
-output: html_document
----
-
-```{r setup, include=FALSE}
+## ----setup, include=FALSE-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 knitr::opts_chunk$set(include = TRUE, echo = TRUE, warning = FALSE, message = FALSE)
-```
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Libraries imported. 
 library(data.table)
 library(ggplot2)
@@ -25,33 +17,18 @@ require(dtw)
 require(TunePareto)
 library(zoo)
 
-```
 
 
- 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 #The environment set as HW3 folder to get dataset eaisly and write files easily. 
 setwd('D:\\Users\\seyma\\Documents\\GitHub\\fall21-seymacakir\\HW3')
 #To avoid randomness in evey run of code, the set.seed function used.
 set.seed(488)
 
-```
 
 
-# Homerwork 3 
-
-**Task: Comparison of NN classifiers with Alternative Representations.**
-
-The aim of this task is to compare alternative distance measures for classification.
-For that purpose 5 different datasets from [Time series Classification](http://www.timeseriesclassification.com) are used which are Trace, ECG200, PowerCons, SmoothSubspace,and Plane. The Datasets represented by two different representation technique which are Piecewise Linear Approximation divide data linear regression models by points and Rpart regression tree. The parameter of PLA which important point is tried for two diffenert value and the maxdepth parameter of regression tree is also tried for two different value. 
-The four different distance calculation methods used: Euclidian distance, DTW, LCSS, and ERP. Based on distance calculation the classes predicted by k-nn classifier for 1,3 and 5. The results evaluated by using Cross-Validation Technique which divide data to 10 fold and use one fold as test data. The process is repeated for 5 times, and test dat selected such as include equal rate of classes with train data. In the end, the average accuracy values and standart deviation calculated for each method, and selected the best method. The selected method used for predict actual test data. 
-
-## Functions
-
-The functions are created for the repeated processes. 
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ##############################################
 
@@ -310,99 +287,61 @@ show_results <- function( get_acc, Dataset){
   
 }
 
-```
 
 
-## Dataset 1: Trace
-
-The first data set used is Trace Dataset from [Time series Classification](http://www.timeseriesclassification.com/description.php?Dataset=Trace)
-
-The Time series Classification Web site summarize data as:
-
-"This 4-class dataset is a subset of the Transient Classification Benchmark (trace project), an initiative at the turn of the century to collate data from the application domain of the process industry (e.g. nuclear, chemical, etc.). It is a synthetic dataset designed to simulate instrumentation failures in a nuclear power plant, created by Davide Roverso. The full dataset consists of 16 classes, 50 instances in each class. Each instance has 4 features. The TRACE subset only uses the second feature of class 2 and the third feature of class 3 and 7. Hence, this dataset contains 200 instances, 50 for each class. All instances are linearly interpolated to have the same length of 275 data points, and are z-normalized."
-
-The example of data shown below. Data is proceed to first column indicates class and last column indicates id of time series. Other columns from V2 to V276 shows the observations during the time. 
-
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ### TRACE DATA SET ###
 # the data pre-proceed 
 Trace_raw_data <- raw_data_preperation("Trace")
 # distances of raw data time series are  calculated 
 #get_distances(Trace_raw_data$traindata,Trace_raw_data$distpath, "Trace","raw")
 
-```
 
-The graph below shows the time series by classes. 
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 g1(Trace_raw_data$raw_data, "Trace") 
-```
- 
-### Classification with Time Series Representation
- 
-**Piece Linear Approximation method set points parameter = 3**
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Trace_pla_rep_3 <- pla_rep_data("Trace",3 ,Trace_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(Trace_pla_rep_3$traindata,Trace_raw_data$distpath,"Trace","PLApoints3")
 
-```
 
-**Piece Linear Approximation method set points parameter = 5**
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Trace_pla_rep_5 <- pla_rep_data("Trace", 5,Trace_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(Trace_pla_rep_5$traindata, Trace_raw_data$distpath,"Trace","PLApoints5")
-```
 
 
-
-
-**Rpart Representation set max depth parameter = 3**
-
-```{r  }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Trace_rpart_3 <- rpart_rep_data("Trace", 3 ,Trace_raw_data$raw_data)
 # Distance calculated 
 #get_distances(Trace_rpart_3$traindata,Trace_raw_data$distpath,"Trace","Rpartmaxdepth3")
 
-```
 
-**Rpart Representation set max depth parameter =  5**
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Trace_rpart_5 <- rpart_rep_data("Trace", 5, Trace_raw_data$raw_data)
 # Distance Calculated
 #get_distances(Trace_rpart_5$traindata,Trace_raw_data$distpath,"Trace","Rpartmaxdepth5")
 
-```
 
 
-### Results of Methods
-
-The Accuracy Values calculted and shown below. 
-
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Trace_Results <- get_acc(Trace_raw_data$distpath,5,10,c(1,3,5),Trace_raw_data$trainclass)
 TRACE <- show_results(Trace_Results,"Trace")
 
 TRACE[[2]]
 
-```
 
 
-### Prediction of Dataset Trace 
-
-The dtw distance calculation with 1-nn classifier method gives the accuracy value 1 which is the best accuracy based on raw data time series, the predictions made with this method. 
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # The data readed and merge to predict test data by train data without use test. 
 
@@ -435,99 +374,60 @@ Trace_test_acc <- confusionMatrix(data = Trace_TEST_prediction, reference = Trac
 
 
 
-```
-The accuracy value is 0.99 in test data, which is very close train data results. 
 
 
-
-## Dataset 2 : ECG200    
-
-  The dataset ECG200 used is provided by [Time Series Classification Website](http://www.timeseriesclassification.com/description.php?Dataset=ECG200) explains dataset as: 
-  
-  This dataset was formatted by R. Olszewski as part of his thesis "Generalized feature extraction for structural pattern recognition in time-series data" at Carnegie Mellon University, 2001. Each series traces the electrical activity recorded during one heartbeat. The two classes are a normal heartbeat and a Myocardial Infarction.
-
-The example of data shown below. Data is proceed to first column indicates class and last column indicates id of time series. Other columns shows the observations during the time. 
-
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ### ECG200 DATA SET ###
 # the data pre-proceed 
 ECG200_raw_data <- raw_data_preperation("ECG200")
 # distances calculated 
 #get_distances(ECG200_raw_data$traindata,ECG200_raw_data$distpath, "ECG200","raw")
 
-```
 
-The graph below shows the time series by classes. 
 
-```{r  }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 g1(ECG200_raw_data$raw_data[c(1:5,95:100),], "ECG200") 
 
-```
-
-### Classification with Time Series Representation
- 
-**Piece Linear Approximation method set points parameter = 5**
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 ECG200_pla_rep_5 <- pla_rep_data("ECG200",5 ,ECG200_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(ECG200_pla_rep_5$traindata,ECG200_raw_data$distpath,"ECG200","PLApoints5")
 
-```
-**Piece Linear Approximation method set points parameter = 10**
 
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 ECG200_pla_rep_10 <- pla_rep_data("ECG200", 10,ECG200_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(ECG200_pla_rep_10$traindata, ECG200_raw_data$distpath,"ECG200","PLApoints10")
-```
 
 
-
-**Rpart Regression Tree method set maxdepth parameter = 5**
-
-
-```{r  }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 ECG200_rpart_5 <- rpart_rep_data("ECG200", 5 ,ECG200_raw_data$raw_data)
 # Distance calculated 
 #get_distances(ECG200_rpart_5$traindata,ECG200_raw_data$distpath,"ECG200","Rpartmaxdepth5")
 
-```
-
-**Rpart Regression Tree method set maxdepth parameter = 10**
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 ECG200_rpart_10 <- rpart_rep_data("ECG200", 10, ECG200_raw_data$raw_data)
 # Distance Calculated
 #get_distances(ECG200_rpart_10$traindata,ECG200_raw_data$distpath,"ECG200","Rpartmaxdepth10")
 
-```
 
-### Results of Methods
 
-The Accuracy Values calculted and shown below. 
-
-```{r Results Shown }
+## ----Results Shown------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ECG200_Results <- get_acc(ECG200_raw_data$distpath,5,10,c(1,3,5),ECG200_raw_data$trainclass)
 ECG200 <- show_results(ECG200_Results,"ECG200")
 ECG200[[2]]
-```
 
 
-### Predicton of Dataset 2: ECG200
-
-
-
-The Eucludaian distance method with raw data and k=3 nn claasifer give the best result with accuracy value 0.904 and std 0.09 based on raw data time series so, in prediction this method used. 
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # data readed and merge to use train data as predictor of TEST data
 ECG_train_data <- as.data.table( read.table("ECG200\\ECG200_TRAIN.txt"))
 dim(ECG_train_data)
@@ -558,105 +458,59 @@ confusionMatrix(data = ECG_TEST_prediction, reference = ECG_class[101:200])
 ECG_test_acc = confusionMatrix(data = ECG_TEST_prediction, reference = ECG_class[101:200])$overall["Accuracy"]
 
 
-```
-
-The test data results very close train data results. 
 
 
-
-
-## Dataset 3: Plane 
-
-The Dataset 3 Plane is provided by [Time Series Classification Website]() 
-
-The data shows 7 different type of plane image as time series data and data is normalized. 
-The Class of data shown below by 1-7 as a-g:
-
-![Type of Planes](http://www.timeseriesclassification.com/images/datasets/Plane.png)
-
-The example of data shown below. Data is proceed to first column indicates class and last column indicates id of time series. Other columns shows the observations during the time. 
-
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ### Plane DATA SET ###
 # the data pre-proceed 
 Plane_raw_data <- raw_data_preperation("Plane")
 # distances calculated 
 #get_distances(Plane_raw_data$traindata,Plane_raw_data$distpath, "Plane","raw")
 
-```
 
-The graph below shows the time series by classes. 
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 g1(Plane_raw_data$raw_data, "Plane") 
-```
-
-### Classification with Time Series Representation
- 
-**Piece Linear Approximation method set points parameter = 5**
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Plane_pla_rep_5 <- pla_rep_data("Plane",5 ,Plane_raw_data$raw_data)
 # Distance Calculated 
 #(Plane_pla_rep_5$traindata,Plane_raw_data$distpath,"Plane","PLApoints5")
 
-```
 
-**Piece Linear Approximation method set points parameter = 10**
 
-```{r  }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Plane_pla_rep_10 <- pla_rep_data("Plane", 10,Plane_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(Plane_pla_rep_10$traindata, Plane_raw_data$distpath,"Plane","PLApoints10")
-```
 
 
-
-
-**Rpart Regression Tree Representation set max depth paramater = 5**
-
-
-```{r  }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Plane_rpart_5 <- rpart_rep_data("Plane", 5 ,Plane_raw_data$raw_data)
 # Distance calculated 
 #get_distances(Plane_rpart_5$traindata,Plane_raw_data$distpath,"Plane","Rpartmaxdepth5")
 
-```
 
-**Rpart Regression Tree Representation set max depth paramater = 10**
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 Plane_rpart_10 <- rpart_rep_data("Plane", 10, Plane_raw_data$raw_data)
 # Distance Calculated
 #get_distances(Plane_rpart_10$traindata,Plane_raw_data$distpath,"Plane","Rpartmaxdepth10")
 
-```
-
-### Results of Methods
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Plane_Results <- get_acc(Plane_raw_data$distpath,5,10,c(1,3,5),Plane_raw_data$trainclass)
 PLANE <- show_results(Plane_Results,"Plane")
 PLANE[[2]]
-```
 
 
-
-### Prediction of Datse 3: Plane 
-
-The dtw and erp method gives the best result which equals 1 in all classifiers 1,3,5 with raw data time series. 
-
-The predictions based on ERP 3-nn classifiers. 
-
-
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # data readed and merge to use train data as predictor of TEST data
 PLANE_train_data <- as.data.table( read.table("Plane\\Plane_TRAIN.txt"))
 dim(PLANE_train_data)
@@ -691,96 +545,59 @@ Plane_test_acc <- confusionMatrix(data = PLANE_TEST_prediction, reference = PLAN
 
 
 
-```
 
 
-
-
-## Dataset 4: SmoothSubspace
-
-The dataset 4 SmoothSubspace is provided by [Time Series Classification Website](http://www.timeseriesclassification.com/description.php?Dataset=SmoothSubspace) explained dataset as:
-
-
-  The data was originally intended for testing whether a clustering algorithm is able to extract smooth subspaces for clustering time series data [1]. There are 3 classes corresponding to which cluster the time series belong to. Each time series contain a continuous subspace spanning over 5 continuous time stamps. - For cluster 1, it is from time stamp 1-5 - For cluster 2, it is from time stamp 6-10 - For cluster 3, it is from time stamp 11-15. The rest of the time series are randomly generated. Data created by Xiaohui Huang et al. (see [1]). Data edited by Hoang Anh Dau. [1] Huang, Xiaohui, et al. "Time series k-means: A new k-means type smooth subspace clustering for time series data." Information Sciences 367 (2016): 1-13.
-  
-  The example of data shown below. Data is proceed to first column indicates class and last column indicates id of time series. Other columns shows the observations during the time. 
-  
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ### SmoothSubspace DATA SET ###
 # the data pre-proceed 
 SmoothSubspace_raw_data <- raw_data_preperation("SmoothSubspace")
 # distances calculated 
 #get_distances(SmoothSubspace_raw_data$traindata,SmoothSubspace_raw_data$distpath, "SmoothSubspace","raw")
 
-```
 
-The graph below shows the time series by classes. 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 g1(SmoothSubspace_raw_data$raw_data, "SmoothSubspace") 
-```
-
-### Classification with Time Series Representation
- 
-**Piece Linear Approximation method set points parameter = 5**
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 SmoothSubspace_pla_rep_5 <- pla_rep_data("SmoothSubspace",5 ,SmoothSubspace_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(SmoothSubspace_pla_rep_5$traindata,SmoothSubspace_raw_data$distpath,"SmoothSubspace","PLApoints5")
 
-```
 
-**Piece Linear Approximation method set points parameter = 10**
 
-```{r  }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 SmoothSubspace_pla_rep_10 <- pla_rep_data("SmoothSubspace", 10,SmoothSubspace_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(SmoothSubspace_pla_rep_10$traindata, SmoothSubspace_raw_data$distpath,"SmoothSubspace","PLApoints10")
-```
 
 
-
-**Rpart Regression Tree Representation set max depth paramater = 5**
-
-
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 SmoothSubspace_rpart_5 <- rpart_rep_data("SmoothSubspace", 5 ,SmoothSubspace_raw_data$raw_data)
 # Distance calculated 
 #get_distances(SmoothSubspace_rpart_5$traindata,SmoothSubspace_raw_data$distpath,"SmoothSubspace","Rpartmaxdepth5")
 
-```
 
-**Rpart Regression Tree Representation set max depth paramater = 10**
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 SmoothSubspace_rpart_10 <- rpart_rep_data("SmoothSubspace", 10, SmoothSubspace_raw_data$raw_data)
 # Distance Calculated
 #get_distances(SmoothSubspace_rpart_10$traindata,SmoothSubspace_raw_data$distpath,"SmoothSubspace","Rpartmaxdepth10")
 
-```
 
-### Results of Methods 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 SmoothSubspace_Results <- get_acc(SmoothSubspace_raw_data$distpath,5,10,c(1,3,5),SmoothSubspace_raw_data$trainclass)
 SMOOTHSUBSPACE <- show_results(SmoothSubspace_Results,"SmoothSubspace")
 SMOOTHSUBSPACE[[2]]
-```
 
 
-
-
-### Prediction of Dataset 4: Smooth Subspace
-
-The maximum average accuracy and low std is given by erp distance calculations 5-nn classifier method by using raw data time series, therefore the predictions based on this method. 
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # data readed and merge to use train data as predictor of TEST data
 SmoothSubspace_train_data <- as.data.table( read.table("SmoothSubspace\\SmoothSubspace_TRAIN.txt"))
@@ -811,94 +628,59 @@ confusionMatrix(data = SmoothSubspace_TEST_prediction, reference = SmoothSubspac
 SmoothSubspace_test_acc = confusionMatrix(SmoothSubspace_TEST_prediction, reference = SmoothSubspace_class[151:300])$overall["Accuracy"]
 
 
-```
 
 
-
-
-## Dataset 5: PowerCons
-
-  The data used as PowerCons provided by [Time Series Classification Website](http://www.timeseriesclassification.com/description.php?Dataset=PowerCons) explained dataset below:
-  
-  The PowerCons dataset contains the individual household electric power consumption in one year distributed in two season classes: warm (class 1) and cold (class 2), depending on whether the power consumption is recorded during the warm seasons (from April to September) or the cold seasons (from October to March). Note that the electric power consumption profiles differ markedly within classes. The sampling rate is every ten-minute over a period of one year. Number of classes: 2 - Class 1: Warm season - Class 2: Cold season Missing value: No Source: EDF R&D, Clamart, France
-
- The example of data shown below. Data is proceed to first column indicates class and last column indicates id of time series. Other columns shows the observations during the time.
- 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ### PowerCons DATA SET ###
 # the data pre-proceed 
 PowerCons_raw_data <- raw_data_preperation("PowerCons")
 # distances calculated 
 #get_distances(PowerCons_raw_data$traindata,PowerCons_raw_data$distpath, "PowerCons","raw")
 
-```
 
-The graph below shows the time series by classes. 
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 g1(PowerCons_raw_data$raw_data[c(1:5,175:180)], "PowerCons") 
-```
 
 
-### Classification with Time Series Representation
-
-**Piece Linear Approximation method set points parameter = 5**
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 PowerCons_pla_rep_5 <- pla_rep_data("PowerCons",5 ,PowerCons_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(PowerCons_pla_rep_5$traindata,PowerCons_raw_data$distpath,"PowerCons","PLApoints5")
 
-```
-**Piece Linear Approximation method set points parameter = 10**
 
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 PowerCons_pla_rep_10 <- pla_rep_data("PowerCons", 10,PowerCons_raw_data$raw_data)
 # Distance Calculated 
 #get_distances(PowerCons_pla_rep_10$traindata, PowerCons_raw_data$distpath,"PowerCons","PLApoints10")
-```
 
 
- 
-**Rpart Regression Tree Representation set max depth paramater = 5**
-
-
-
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 PowerCons_rpart_5 <- rpart_rep_data("PowerCons", 5 ,PowerCons_raw_data$raw_data)
 # Distance calculated 
 #get_distances(PowerCons_rpart_5$traindata,PowerCons_raw_data$distpath,"PowerCons","Rpartmaxdepth5")
 
-```
-**Rpart Regression Tree Representation set max depth paramater = 10**
 
-```{r}
+
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Data representation and preparation
 PowerCons_rpart_10 <- rpart_rep_data("PowerCons", 10, PowerCons_raw_data$raw_data)
 # Distance Calculated
 #get_distances(PowerCons_rpart_10$traindata,PowerCons_raw_data$distpath,"PowerCons","Rpartmaxdepth10")
 
-```
 
-### Results of Methods
-The Accuracy Values calculted and shown below. 
 
-```{r }
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 PowerCons_Results <- get_acc(PowerCons_raw_data$distpath,5,10,c(1,3,5),PowerCons_raw_data$trainclass)
 POWERCONS <- show_results(PowerCons_Results,"PowerCons")
 POWERCONS[[2]]
-```
-
-### Prediciton of Dataset 5: PowerCons 
-
-The euclidian distance with 3-nn classifier gives the best rsult based on raw data time series. The class of test data predicted basen on this method. 
 
 
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # data readed and merge to use train data as predictor of TEST data
 PowerCons_train_data <- as.data.table( read.table("PowerCons\\PowerCons_TRAIN.txt"))
@@ -930,23 +712,11 @@ confusionMatrix(data = PowerCons_TEST_prediction, reference = PowerCons_class[18
 
 PowerCons_test_acc <- confusionMatrix(data = PowerCons_TEST_prediction, reference = PowerCons_class[181:360])$overall["Accuracy"]
 
-```
 
 
-## Overall Results 
-
-The Overall results of accuracies of  train  data and test data by the best method in train dataset is shown below: 
-
-```{r}
+## -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 RESULTS = rbind(TRACE[[1]], ECG200[[1]],PLANE[[1]][5],SMOOTHSUBSPACE[[1]],POWERCONS[[1]])[,1:5]
 RESULTS[, test_acc:= c(Trace_test_acc,ECG_test_acc,Plane_test_acc,SmoothSubspace_test_acc,PowerCons_test_acc)]
 setnames(RESULTS,"avg_acc","cv_train_acc")
 RESULTS
-```
-
-The overall observation, the distance approach and nn classifier differs for datasets but the representation methods not give best results for all of them. 
-
-## Code of Study
-
-The code of my study is available from [here](https://bu-ie-48B.github.io/fall21-seymacakir/HW3/HW3.R)
 
