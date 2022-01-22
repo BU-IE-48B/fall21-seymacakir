@@ -1,0 +1,716 @@
+---
+title: "Project"
+author: "seyma cakir"
+date: "1/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(tidyr)
+require(dplyr)
+require(rpart)
+require(caret)
+library(tidyverse)
+require(TSrepr)
+require(TSdist)
+require(dtw)
+require(TunePareto)
+library(zoo)
+library(rattle)
+```
+
+
+```{r}
+setwd('D:\\Users\\seyma\\Documents\\GitHub\\fall21-seymacakir\\Project')
+set.seed(448)
+
+
+```
+
+```{r}
+nn_classify_cv=function(dist_matrix,train_class,test_indices,k=1){
+    
+    test_distances_to_train=dist_matrix[test_indices,]
+    test_distances_to_train=test_distances_to_train[,-test_indices]
+    train_class=train_class[-test_indices]
+    
+    ordered_indices=apply(test_distances_to_train,1,order)
+    if(k==1){
+        nearest_class=as.numeric(train_class[as.numeric(ordered_indices[1,])])
+        nearest_class=data.table(id=test_indices,nearest_class)
+    } else {
+        nearest_class=apply(ordered_indices[1:k,],2,function(x) {train_class[x]})
+        nearest_class=data.table(id=test_indices,t(nearest_class))
+    }
+    
+    long_nn_class=melt(nearest_class,'id')
+
+    class_counts=long_nn_class[,.N,list(id,value)]
+    class_counts[,predicted_prob:=N/k]
+    wide_class_prob_predictions=dcast(class_counts,id~value,value.var='predicted_prob')
+    wide_class_prob_predictions[is.na(wide_class_prob_predictions)]=0
+    class_predictions=class_counts[,list(predicted=value[which.max(N)]),by=list(id)]
+    
+    
+    return(list(prediction=class_predictions,prob_estimates=wide_class_prob_predictions))
+    
+}
+
+get_acc = function(dist_mat,nof_rep = 5,n_fold = 10, k_levels, trainclass){
+cv_indices=generateCVRuns(trainclass, ntimes =nof_rep, nfold = n_fold, 
+                          leaveOneOut = FALSE, stratified = TRUE)
+
+
+result=vector('list',nof_rep*n_fold*length(k_levels))
+iter=1
+
+    for(i in 1:nof_rep){
+        this_fold=cv_indices[[i]]
+        for(j in 1:n_fold){
+            test_indices=this_fold[[j]]
+            for(k in 1:length(k_levels)){
+                current_k=k_levels[k]
+                current_fold=nn_classify_cv(dist_mat,trainclass,test_indices,k=current_k)
+                accuracy=sum(trainclass[test_indices]==current_fold$prediction$predicted)/length(test_indices)
+                tmp=data.table(
+                               repid=i,
+                               foldid=j,
+                               k=current_k,
+                               acc=accuracy)
+                result[[iter]]=tmp
+                iter=iter+1
+                
+            }
+            
+        }
+    
+    }   
+    
+
+return (list(result))
+}
+```
+
+
+# Sample Data Organization 
+
+```{r}
+
+
+data = fread('bulk_imbalance.csv')
+data[, id:= 1:.N]
+data[system_direction == ""]$system_direction = "Neutral"
+#data$system_direction = factor(data$system_direction)
+
+traindata= data[(nrow(data)-45*24):(nrow(data)-12),c("id","date","hour","net", "system_direction") ]
+
+for( i in 1:72 ){
+  traindata[, sprintf("hour_%s",i) := shift(net,i)]
+}
+
+train_data = traindata[73:(nrow(traindata))]
+
+head(train_data)
+
+#train_data = train_data[, id := rep(1:length(unique(train_data$date)),each= 24)]
+
+long_train =melt(train_data,id.vars=c('id','hour','system_direction','date','net'))
+long_train[,time:=as.numeric(gsub("hour_", "",variable))]
+long_train=long_train[,list(id,system_direction,time,value,hour)]
+long_train=long_train[order(id,time)]
+long_train$system_direction = factor(long_train$system_direction)
+
+opt_k_levels = data.table(c(12:23))
+
+for (j in 12:23){
+df = long_train[long_train$hour==j]
+
+matrix = data.table(t(1:72))
+
+for (i in unique(df$id)){
+    data=df[id==i,"value"]
+    matrix = rbind(matrix, t(data[,"value"]))
+}
+
+matrix = matrix[2:nrow(matrix),]
+dist_euc=as.matrix(dist(matrix))
+diag(dist_euc)=2*max(dist_euc)
+train_class = train_data[hour==j]$system_direction
+    
+train_class[train_class =="Negative"] = 1
+train_class[train_class =="Neutral"] = 2
+train_class[train_class =="Positive"] = 3
+train_class = factor(train_class)
+
+k_levels = c(1,3,5)
+
+results = rbindlist(get_acc(dist_euc,3,10,k_levels,train_class)[[1]])
+
+overall_results <- results[,list(avg_acc=mean(acc),sdev_acc=sd(acc),result_count=.N),by=list(k)]
+print(j)
+print(overall_results)
+
+opt_k_levels[j-11] = as.numeric(overall_results[avg_acc == max(avg_acc), "k"][1])
+
+}
+
+
+# prediction
+data = fread('bulk_imbalance.csv')
+data[, id:= 1:.N]
+data[system_direction == ""]$system_direction = "Neutral"
+#data$system_direction = factor(data$system_direction)
+
+traindata= data[(nrow(data)-45*24):(nrow(data)),c("id","date","hour","net", "system_direction") ]
+
+for( i in 1:72 ){
+  traindata[, sprintf("hour_%s",i) := shift(net,i)]
+}
+
+train_data = traindata[73:(nrow(traindata))]
+
+head(train_data)
+
+#train_data = train_data[, id := rep(1:length(unique(train_data$date)),each= 24)]
+
+long_train =melt(train_data,id.vars=c('id','hour','system_direction','date','net'))
+long_train[,time:=as.numeric(gsub("hour_", "",variable))]
+long_train=long_train[,list(id,system_direction,time,value,hour)]
+long_train=long_train[order(id,time)]
+long_train$system_direction = factor(long_train$system_direction)
+
+
+
+k_level=3
+
+
+predictions <- c(12:23)
+for (j in 12:23){
+df = long_train[long_train$hour==j]
+tail(df,30)
+
+matrix = data.table(t((j-4):72))
+
+i=df$id[length(df$id)]
+for (i in unique(df$id)){
+    data=df[id==i & time > (j-5),"value"]
+    matrix = rbind(matrix, t(data[,"value"]))
+}
+
+matrix = matrix[2:nrow(matrix),]
+dist_euc=as.matrix(dist(matrix))
+train_class = train_data[hour==j]$system_direction
+    
+train_class[train_class =="Negative"] = 1
+train_class[train_class =="Neutral"] = 2
+train_class[train_class =="Positive"] = 3
+train_class = factor(train_class)
+
+print(j)
+k_level = as.numeric(opt_k_levels[j-11,"V1"])
+pred = c(apply(dist_euc,1,order)[nrow(dist_euc),ncol(dist_euc)],nrow(dist_euc))
+predictions[j-11] = nn_classify_cv(dist_euc,train_class,test_indices = pred,k_level)$prediction$predicted[-1]
+
+}
+
+
+
+
+
+predictions
+```
+
+# Rpart Representation
+
+```{r}
+
+j=0
+for (j in 0:23){
+  
+df = long_train[long_train$hour==j]
+rpart_matrix = data.table(t(1:72))
+
+for (i in unique(df$id)){
+    # select the data for representation
+    data=df[id==i]
+    # set parameters and represent data
+    tree_fit=rpart(value~time,data,control=rpart.control(maxdepth=3))
+    data[,tree_rep:=predict(tree_fit,data)]
+    # change actual variables with representation
+    rpart_matrix = rbind(rpart_matrix, t(data$tree_rep))
+}
+
+rpart_matrix = rpart_matrix[2:nrow(rpart_matrix),]
+rpart_dist_euc=as.matrix(dist(rpart_matrix))
+diag(rpart_dist_euc)=2*max(rpart_dist_euc)
+train_class = train_data[hour==j]$system_direction
+    
+train_class[train_class =="Negative"] = 1
+train_class[train_class =="Neutral"] = 2
+train_class[train_class =="Positive"] = 3
+train_class = factor(train_class)
+
+k_levels = c(1,3,5)
+
+results = rbindlist(get_acc(rpart_dist_euc,3,10,k_levels,train_class)[[1]])
+
+overall_results <- results[,list(avg_acc=mean(acc),sdev_acc=sd(acc),result_count=.N),by=list(k)]
+
+print(overall_results)
+
+
+}
+
+klevel= 3
+#prediction
+
+
+# prediction
+for (j in 0:23){
+df = long_train[long_train$hour==j]
+rpart_matrix = data.table(t(1:72))
+
+for (i in unique(df$id)){
+    # select the data for representation
+    data=df[id==i]
+    # set parameters and represent data
+    tree_fit=rpart(value~time,data,control=rpart.control(maxdepth=3))
+    data[,tree_rep:=predict(tree_fit,data)]
+    # change actual variables with representation
+    rpart_matrix = rbind(rpart_matrix, t(data$tree_rep))
+}
+
+rpart_matrix = rpart_matrix[2:nrow(rpart_matrix),]
+rpart_dist_euc=as.matrix(dist(rpart_matrix))
+diag(rpart_dist_euc)=2*max(rpart_dist_euc)
+train_class = train_data[hour==j]$system_direction
+    
+train_class[train_class =="Negative"] = 1
+train_class[train_class =="Neutral"] = 2
+train_class[train_class =="Positive"] = 3
+train_class = factor(train_class)
+
+print(j)
+pred = c(apply(rpart_dist_euc,1,order)[(nrow(rpart_dist_euc)-1),ncol(rpart_dist_euc)],nrow(rpart_dist_euc))
+print(nn_classify_cv(rpart_dist_euc,train_class,test_indices = pred,klevel)$prediction$predicted[-1])
+
+}
+
+```
+
+,
+# Forecasting Approach 
+
+```{r}
+library(stringr)
+
+library(data.table)
+library(GGally)
+library(rpart)
+library(rattle)
+set.seed(448)
+
+data = fread('bulk_imbalance.csv')
+data_w = fread('2022-01-18_weather.csv')
+
+
+#ggplot(data, aes(x= date, y=net)) + geom_line() + labs( title = "Net Value During Time", xlab = "time", y= "net") + theme_minimal()
+
+
+
+unified = str_c(data_w$variable,"_",data_w$lon,"_",data_w$lat )
+data_w[,location := unified]
+data_w= data_w[,c("date","hour","location","value")]
+data_w = dcast(data_w,date+hour~location )
+
+lm_data = merge(data[,c("date","hour","net")],data_w, by = c("date","hour"))
+
+lm_data[,w_day:=as.character(wday(date))]
+lm_data[,mon:=as.character(month(date))]
+lm_data[,trnd:= 1:.N]
+
+
+
+for (i in c(36,48,60,72,24*7)){
+  lm_data[,sprintf("lag_%s",i):= shift(net,i)]
+  
+}
+
+ggpairs(lm_data[,c("net","lag_36","lag_48","lag_60","lag_72","lag_168")])
+
+head(lm_data)
+
+lm_data = lm_data[169:nrow(lm_data)]
+
+
+lm_base=lm(net~trnd+as.factor(w_day)+as.factor(mon)+as.factor(hour),lm_data)
+summary(lm_base)
+
+tmp=copy(lm_data)
+tmp[,system_direction:= data[169:nrow(data)]$system_direction]
+tmp[, pred:= predict(lm_base, tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+
+acc = sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+
+tmp[,residuals:= net-pred]
+
+library(rpart)
+
+
+df = tmp[,-c("net","date","pred","c_pred","system_direction")]
+model_1 = rpart(residuals ~. ,df, control = rpart.control(maxdepth = 3,cp = 0) )
+
+fancyRpartPlot(model_1)
+
+
+tmp[,A:=TMP_2.m.above.ground_28.75_41   >= 30.451]
+tmp[, B:= trnd >= 22669.5]
+tmp[,C:= trnd    <22817.5]
+
+lm_base_2 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C,tmp)
+
+summary(lm_base_2)
+
+
+
+tmp[,pred := predict(lm_base_2,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+acc = sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_2  = tmp[,-c("net","date","pred","c_pred","system_direction")]
+model_2 = rpart(residuals ~.-A-B-C ,df_2, control = rpart.control(maxdepth = 3,cp = 0) )
+
+fancyRpartPlot(model_2)
+
+summary(model_2)
+
+tmp[,D:= TMP_2.m.above.ground_28.75_41   < 27.1495 ]
+tmp[,E:=  trnd                  >= 14606.5 ]
+tmp[,G:=trnd        >= 22025 ]
+
+lm_base_3 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G,tmp)
+summary(lm_base_3)
+
+tmp[,pred := predict(lm_base_3,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_3 = tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","F","G")]
+model_3 = rpart(residuals ~.,df_3, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_3)
+
+summary(model_3)
+
+
+tmp[, H:= TMP_2.m.above.ground_28.75_41   < 8.5575 ]
+tmp[,I:=RH_2.m.above.ground_27_38.5  < 65.55 ]   
+tmp[,J:=trnd                         >= 25934.5]
+
+lm_base_4 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J,tmp)
+summary(lm_base_4)
+
+tmp[,pred := predict(lm_base_4,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_4 = tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J")]
+model_4 = rpart(residuals ~.,df_4, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_4)
+summary(model_4)
+
+tmp[, K:= lag_48      >= 324.4755 ]
+tmp[, L:=  lag_48           >= 8680.314 ]
+lm_base_5 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L ,tmp)
+summary(lm_base_5)
+
+tmp[,pred := predict(lm_base_5,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_5 = tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L")]
+model_5 = rpart(residuals ~.,df_5, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_5)
+summary(model_5)
+
+
+tmp[,M:=wdir_10m_27_38.5                >= 169.8047]
+tmp[,N:=TCDC_low.cloud.layer_35.5_37   >= 70.85]
+tmp[,O:= ws_10m_33_40             >= 6.287474]
+ 
+lm_base_6 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O ,tmp)
+summary(lm_base_6)
+
+tmp[,pred := predict(lm_base_6,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_6 = tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0")]
+model_6 = rpart(residuals ~.,df_6, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_6)
+summary(model_6)
+
+tmp[,P:=wdir_10m_27_38.5            < 169.8047]
+tmp[,R:=TMP_2.m.above.ground_32.5_36.5  < 21.8895]
+tmp[,S:= tmp$w_day %in% c(4,5,6)]
+
+lm_base_7 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S ,tmp)
+summary(lm_base_7)
+
+tmp[,pred := predict(lm_base_7,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_7= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S")]
+model_7 = rpart(residuals ~.,df_7, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_7)
+summary(model_7)
+
+tmp[,U:= lag_60 >= 7981.586 ]
+tmp[,V:= ws_10m_30.5_39.75  >= 3.899535]
+
+lm_base_8 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V,tmp)
+summary(lm_base_8)
+
+tmp[,pred := predict(lm_base_8,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_8= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V")]
+model_8 = rpart(residuals ~.,df_8, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_8)
+summary(model_8)
+
+
+tmp[,Y:= lag_168                       < 247.5455]
+tmp[,Z:= TMP_2.m.above.ground_28.75_41 >= 32.628 ] 
+
+lm_base_9 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z,tmp)
+summary(lm_base_9)
+
+tmp[,pred := predict(lm_base_9,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+
+df_9= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z")]
+model_9 = rpart(residuals ~.,df_9, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_9)
+summary(model_9)
+
+tmp[, A1:= TMP_2.m.above.ground_28.75_41 < 1.723]
+tmp[,B1:= ws_10m_30.5_39.75     >= 3.212347]
+tmp[,C1:=RH_2.m.above.ground_28.75_41 >= 57.85] 
+
+
+
+lm_base_10 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1,tmp)
+summary(lm_base_10)
+
+tmp[,pred := predict(lm_base_10,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+
+df_10= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z","A1","B1","C1")]
+model_10 = rpart(residuals ~.,df_10, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_10)
+summary(model_10)
+
+tmp[,D1:=ws_10m_28.75_41     >= 2.910218 ]
+tmp[,E1:=trnd                          >= 26428.5] 
+tmp[, G1:=TMP_2.m.above.ground_33_40   >= 5.1345]
+
+lm_base_11 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1 + D1:G1:E1,tmp)
+summary(lm_base_11)
+
+tmp[,pred := predict(lm_base_11,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_11= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z","A1","B1","C1","D1","E1","G1")]
+model_11 = rpart(residuals ~.,df_11, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_10)
+summary(model_11)
+
+
+tmp[, H1:= lag_72                        < 70.636 ]
+tmp[, I1:= RH_2.m.above.ground_35.5_37  < 13.25]
+tmp[,J1:=lag_48         >= -1790.275]
+
+lm_base_12 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1 + D1:G1:E1+ H1:I1:J1,tmp)
+summary(lm_base_12)
+
+tmp[,pred := predict(lm_base_12,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_12= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z","A1","B1","C1","D1","E1","G1","H1","I1","J1")]
+model_12 = rpart(residuals ~.,df_12, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_12)
+summary(model_12)
+
+tmp[,K1:=TMP_2.m.above.ground_28.75_41   >= 23.9795]
+tmp[,L1:=ws_10m_27_38.5                  < 5.290033]
+tmp[,M1:= hour >15 ]
+
+lm_base_13 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1 + D1:G1:E1+ H1:I1:J1 + K1:L1:M1,tmp)
+summary(lm_base_13)
+
+tmp[,pred := predict(lm_base_13,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_13= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z","A1","B1","C1","D1","E1","G1","H1","I1","J1","K1","L1","M1")]
+model_13 = rpart(residuals ~.,df_13, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_13)
+summary(model_13)
+
+tmp[,N1:=TCDC_low.cloud.layer_33_40     < 84.05  ]
+tmp[,O1 := ws_10m_27_38.5    < 1.718166 ]
+tmp[,P1:=ws_10m_32.5_36.5              < 12.31502]
+
+
+lm_base_14 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1 + D1:G1:E1+ H1:I1:J1 + K1:L1:M1 + N1:O1:P1,tmp)
+summary(lm_base_14)
+
+tmp[,pred := predict(lm_base_14,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_14= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z","A1","B1","C1","D1","E1","G1","H1","I1","J1","K1","L1","M1","N1","O1","P1")]
+model_14 = rpart(residuals ~.,df_14, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_14)
+summary(model_14)
+
+
+tmp[,R1:=trnd                         >= 3672.5 ]
+tmp[,S1:= trnd                           < 3761.5]
+tmp[,T1:= ws_10m_32.5_38 >= 5.34097   ]
+
+
+lm_base_15 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1 + D1:G1:E1+ H1:I1:J1 + K1:L1:M1 + N1:O1:P1 + R1:S1:T1,tmp)
+summary(lm_base_15)
+
+tmp[,pred := predict(lm_base_15,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+df_15= tmp[,-c("net","date","pred","c_pred","system_direction","A","B","C","D","E","H","G","I","J","K","L","M","N","0","P","R","S","U","V","Y","Z","A1","B1","C1","D1","E1","G1","H1","I1","J1","K1","L1","M1","N1","O1","P1","R1","S1","T1")]
+model_15 = rpart(residuals ~.,df_15, control = rpart.control(maxdepth = 3,cp = 0) )
+fancyRpartPlot(model_15)
+summary(model_15)
+
+tmp[,U1:= trnd < 705]
+tmp[,V1:=  wdir_10m_35.5_37             < 142.1965]
+tmp[,Y1:= wdir_10m_30.5_39.75            < 152.9868  ]
+
+lm_base_16 = lm(net~ trnd + factor(hour) + factor(mon) + factor(w_day) + A:B:C + D:E:G + H:I:J + K:L + M:N:O + P:R:S + U:V + Y:Z + A1:B1:C1 + D1:G1:E1+ H1:I1:J1 + K1:L1:M1 + N1:O1:P1 + R1:S1:T1+ U1:V1:Y1,tmp)
+summary(lm_base_16)
+
+
+tmp[,pred := predict(lm_base_16,tmp)]
+tmp[pred>= 50,c_pred:= "Positive"]
+tmp[pred<=-50,c_pred:= "Negative"]
+tmp[pred<50 & pred>-50,c_pred:= "Neutral"]
+tmp[,residuals:= net-pred]
+
+sum(tmp$system_direction==tmp$c_pred) / length(tmp$system_direction)
+
+tail(tmp[,c("date","hour","pred","lag_48","c_pred")],12)$c_pred
+```
+
+
+```{r}
+
+scaled_net = (data$net - mean(data$net))/ sd(data$net)
+data[, scaled_net := scaled_net]
+lm_scaled=lm(scaled_net~trnd+w_day+mon+as.factor(hour),data)
+summary(lm_scaled)
+
+tmp=copy(data)
+tmp[,actual:=scaled_net]
+tmp[,predicted:=predict(lm_scaled,tmp)]
+#head(tmp)
+ggplot(tmp ,aes(x=date)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted,color='predicted'))
+
+```
+
+
+
+
+
+
+
