@@ -13,3 +13,9 @@
 ## Homework-3 
 
 [**Comparison of NN classifiers with alternative representations**](HW3/HW3.html)
+
+
+## Project
+
+[**Imbalance Prediction for Electricity Markets**](Project/Project.html)
+
